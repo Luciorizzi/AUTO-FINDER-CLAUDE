@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(cp .env.example .env)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m app.main)",
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python -m pytest tests/ -v)",
+      "Bash(.venv/Scripts/python -m app.main)",
+      "Bash(.venv/Scripts/activate)",
+      "Bash(.venv/Scripts/playwright install:*)",
+      "Bash(.venv/Scripts/python -m scripts.run_once)",
+      "Bash(ML_MAX_RESULTS_PER_QUERY=5 ML_MAX_DETAIL_PAGES_PER_RUN=5 .venv/Scripts/python -m scripts.run_once)",
+      "Bash(rm -f data/autofinder.db)",
+      "Bash(.venv/Scripts/python -m scripts.init_db)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
+      "Bash(.venv/Scripts/python.exe -m scripts.process_normalization)",
+      "Bash(.venv/Scripts/python.exe -c \":*)",
+      "Bash(.venv/Scripts/python.exe -m scripts.run_pricing)",
+      "Bash(python -m pytest tests/ -v --tb=short)"
+    ]
+  }
+}

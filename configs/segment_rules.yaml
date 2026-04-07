@@ -1,0 +1,13 @@
+# Reglas de segmento para filtrar publicaciones
+segment:
+  name: "hatchbacks_basicos"
+  year_min: 2010
+  year_max: 2015
+  km_max: 110000
+  km_comparable_delta: 15000
+  models:
+    - "Gol Trend"
+    - "Clio Mio"
+    - "Fiat Punto"
+    - "Ford Ka"
+    - "Chevrolet Celta"

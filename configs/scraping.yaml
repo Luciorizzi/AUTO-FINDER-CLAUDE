@@ -1,0 +1,20 @@
+# Configuracion de scraping para Mercado Libre
+scraping:
+  # Queries de busqueda por modelo
+  # Cada query se envia tal cual a ML
+  search_queries:
+    - "gol trend 2010 2015"
+    - "clio mio 2010 2015"
+    - "fiat punto 2010 2015"
+    - "ford ka 2010 2015"
+    - "chevrolet celta 2010 2015"
+
+  # Base URL de busqueda de ML Autos
+  base_url: "https://autos.mercadolibre.com.ar"
+
+  # Filtros de URL adicionales (se concatenan a la query)
+  # Rango de anios y km se filtran por parametros de ML cuando es posible
+  url_filters:
+    category: "autos"
+    # Ordenar por mas recientes
+    sort: "time_desc"

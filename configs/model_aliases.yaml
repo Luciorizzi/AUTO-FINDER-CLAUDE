@@ -1,0 +1,62 @@
+# Aliases para normalizar nombres de modelos desde publicaciones.
+#
+# Reglas de matching:
+# 1. Se buscan aliases como subcadenas en el titulo normalizado (sin tildes, lowercase)
+# 2. Los aliases mas largos (mas especificos) tienen prioridad
+# 3. "clio" solo matchea si NO se configura ALLOW_AMBIGUOUS_CLIO=false (default)
+#    porque "clio" puede referir a Clio II/III que no es Clio Mio
+# 4. Las variantes con brand+model son las mas confiables
+#
+# Para agregar un modelo nuevo: agregar entrada con su lista de aliases
+
+aliases:
+  "Gol Trend":
+    - "gol trend"
+    - "volkswagen gol trend"
+    - "vw gol trend"
+    - "gol trend pack"
+    - "gol trend highline"
+    - "gol trend trendline"
+    - "gol trend comfortline"
+    - "volkswagen gol"
+    - "vw gol"
+  "Clio Mio":
+    - "clio mio"
+    - "renault clio mio"
+    - "clio mio confort"
+    - "clio mio comfort"
+    - "clio mio dynamique"
+    - "clio mio expression"
+  "Fiat Punto":
+    - "fiat punto"
+    - "punto attractive"
+    - "punto elx"
+    - "punto essence"
+    - "punto sporting"
+  "Ford Ka":
+    - "ford ka"
+    - "ka fly"
+    - "ka viral"
+    - "ka pulse"
+    - "ka edge"
+  "Chevrolet Celta":
+    - "chevrolet celta"
+    - "celta lt"
+    - "celta ls"
+    - "celta advantage"
+    - "celta spirit"
+
+# Aliases ambiguos: matchean solo si ALLOW_AMBIGUOUS_CLIO=true
+# o si hay evidencia adicional de brand
+ambiguous:
+  "Clio Mio":
+    - "clio"
+    - "renault clio"
+  "Fiat Punto":
+    - "punto"
+  "Ford Ka":
+    - "ka"
+  "Chevrolet Celta":
+    - "celta"
+  "Gol Trend":
+    - "gol"

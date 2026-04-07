@@ -1,0 +1,39 @@
+# Umbrales de oportunidad
+# gap_pct = ((precio_publicado - fair_price) / fair_price) * 100
+thresholds:
+  strong_gap: -12
+  medium_gap: -8
+  alert_high_risk: false
+
+# Criterios de riesgo por cantidad de comparables
+risk:
+  low_min_comparables: 8
+  medium_min_comparables: 5
+
+# Pricing
+pricing:
+  # Minimo de comparables para considerar el analisis confiable
+  min_comparables: 3
+  # Gap extremo sospechoso (mas negativo que esto levanta alerta)
+  extreme_gap_pct: -30
+  # Coeficiente IQR para filtro de outliers (1.5 = standard, 2.0 = permisivo)
+  iqr_factor: 1.5
+  # Dispersion maxima aceptable (coef. de variacion) antes de alertar
+  max_cv: 0.40
+
+# Comparable levels (Nivel A = estricto, Nivel B = ampliado)
+comparable_levels:
+  level_a_max_year_diff: 1
+  level_a_max_km_diff: 15000
+  level_b_max_year_diff: 2
+  level_b_max_km_diff: 20000
+  # Minimo de comparables en nivel A antes de abrir a nivel B
+  min_comparables_level_a: 3
+
+# Dominancia
+dominance:
+  # Tolerancia de precio para que un comparable "domine" al target
+  # Un comparable domina si su precio es <= target_price * (1 + tolerance/100)
+  price_tolerance_pct: 5.0
+  # Ventaja minima de km que el dominador debe tener
+  min_km_advantage: 3000
