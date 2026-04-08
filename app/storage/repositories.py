@@ -400,9 +400,33 @@ def save_pricing_analysis(
     dominance_reason: Optional[str] = None,
     comparable_level: Optional[str] = None,
     currency_used: Optional[str] = None,
+    # Fase 4.2: local rank
+    local_price_rank: Optional[int] = None,
+    local_group_size: int = 0,
+    local_price_percentile: Optional[float] = None,
+    is_top_local_price_1: bool = False,
+    is_top_local_price_3: bool = False,
+    # Fase 4.2: freshness
+    freshness_bucket: Optional[str] = None,
+    freshness_boost: float = 0.0,
+    days_on_market: Optional[int] = None,
+    # Fase 4.2: price history
+    initial_price: Optional[float] = None,
+    current_price: Optional[float] = None,
+    price_change_count: int = 0,
+    markdown_abs: Optional[float] = None,
+    markdown_pct: Optional[float] = None,
+    markdown_bonus: float = 0.0,
+    # Fase 4.2: priority score
+    price_edge_score: float = 0.0,
+    local_rank_bonus: float = 0.0,
+    dominance_penalty: float = 0.0,
+    anomaly_penalty: float = 0.0,
+    final_priority_score: Optional[float] = None,
+    final_priority_level: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> int:
-    """Persiste un resultado de analisis de pricing."""
+    """Persiste un resultado de analisis de pricing con priority score (Fase 4.2)."""
     cursor = conn.execute(
         """INSERT INTO pricing_analyses
            (listing_id, published_price, fair_price, gap_pct,
@@ -412,8 +436,17 @@ def save_pricing_analysis(
             median_comparable_price, p25_comparable_price,
             is_dominated, dominated_by_listing_id, dominance_reason,
             comparable_level, currency_used,
+            local_price_rank, local_group_size, local_price_percentile,
+            is_top_local_price_1, is_top_local_price_3,
+            freshness_bucket, freshness_boost, days_on_market,
+            initial_price, current_price, price_change_count,
+            markdown_abs, markdown_pct, markdown_bonus,
+            price_edge_score, local_rank_bonus,
+            dominance_penalty, anomaly_penalty,
+            final_priority_score, final_priority_level,
             pricing_status, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             listing_id, published_price, fair_price, gap_pct,
             opportunity_level, anomaly_risk, anomaly_reasons,
@@ -422,11 +455,22 @@ def save_pricing_analysis(
             median_comparable_price, p25_comparable_price,
             1 if is_dominated else 0, dominated_by_listing_id, dominance_reason,
             comparable_level, currency_used,
+            local_price_rank, local_group_size, local_price_percentile,
+            1 if is_top_local_price_1 else 0, 1 if is_top_local_price_3 else 0,
+            freshness_bucket, freshness_boost, days_on_market,
+            initial_price, current_price, price_change_count,
+            markdown_abs, markdown_pct, markdown_bonus,
+            price_edge_score, local_rank_bonus,
+            dominance_penalty, anomaly_penalty,
+            final_priority_score, final_priority_level,
             pricing_status, notes,
         ),
     )
     conn.commit()
-    logger.debug("Pricing analysis guardado: listing_id=%d, status=%s", listing_id, pricing_status)
+    logger.debug(
+        "Pricing analysis guardado: listing_id=%d, status=%s, priority=%s score=%s",
+        listing_id, pricing_status, final_priority_level, final_priority_score,
+    )
     return cursor.lastrowid
 
 
@@ -472,6 +516,17 @@ def get_pricing_summary(conn: sqlite3.Connection) -> dict:
         "SELECT count(*) as c FROM listings WHERE is_financing = 1 OR is_down_payment = 1"
     ).fetchone()["c"]
 
+    # Fase 4.2: prioridad operativa
+    urgent = conn.execute(
+        "SELECT count(*) as c FROM pricing_analyses WHERE final_priority_level = 'urgent_review'"
+    ).fetchone()["c"]
+    high_pri = conn.execute(
+        "SELECT count(*) as c FROM pricing_analyses WHERE final_priority_level = 'high_priority'"
+    ).fetchone()["c"]
+    top_local = conn.execute(
+        "SELECT count(*) as c FROM pricing_analyses WHERE is_top_local_price_1 = 1"
+    ).fetchone()["c"]
+
     return {
         "total_analyzed": total,
         "enough_data": enough,
@@ -482,5 +537,8 @@ def get_pricing_summary(conn: sqlite3.Connection) -> dict:
         "high_risk": high_risk,
         "dominated": dominated,
         "financing_excluded": financing,
+        "urgent_review": urgent,
+        "high_priority": high_pri,
+        "top_local_1": top_local,
         "errors": errors,
     }

@@ -108,6 +108,37 @@ class DominanceConfig(BaseModel):
     min_km_advantage: int = 3000
 
 
+class PriorityConfig(BaseModel):
+    """Parametros del motor de priorizacion operativa (Fase 4.2).
+
+    Separa la oportunidad estadistica (gap contra mediana) de la
+    prioridad operativa (que aviso conviene mirar primero).
+    """
+    # Freshness boosts
+    freshness_1d_boost: float = 25.0
+    freshness_3d_boost: float = 15.0
+    freshness_7d_boost: float = 5.0
+    # Local rank bonuses
+    local_top1_bonus: float = 30.0
+    local_top3_bonus: float = 15.0
+    # Microgrupo local (year/km delta)
+    local_group_max_year_diff: int = 1
+    local_group_max_km_diff: int = 15000
+    local_min_group_size: int = 3
+    # Penalties
+    dominance_penalty: float = 40.0
+    anomaly_high_penalty: float = 25.0
+    # Markdown (rebaja)
+    markdown_significant_pct: float = 3.0
+    markdown_bonus: float = 20.0
+    # Price edge cap
+    price_edge_cap: float = 40.0
+    # Umbrales de final_priority_level
+    urgent_review_threshold: float = 70.0
+    high_priority_threshold: float = 45.0
+    medium_priority_threshold: float = 20.0
+
+
 class ModelAliasesConfig(BaseModel):
     """Mapeo de modelo normalizado -> lista de aliases."""
     aliases: dict[str, list[str]]
@@ -170,6 +201,12 @@ def load_dominance_config() -> DominanceConfig:
     """Carga parametros de dominancia desde YAML."""
     data = _load_yaml("thresholds.yaml")
     return DominanceConfig(**data.get("dominance", {}))
+
+
+def load_priority_config() -> PriorityConfig:
+    """Carga parametros de priorizacion operativa desde YAML."""
+    data = _load_yaml("thresholds.yaml")
+    return PriorityConfig(**data.get("priority", {}))
 
 
 def load_model_aliases() -> ModelAliasesConfig:

@@ -19,7 +19,9 @@
       "Bash(.venv/Scripts/python.exe -m scripts.process_normalization)",
       "Bash(.venv/Scripts/python.exe -c \":*)",
       "Bash(.venv/Scripts/python.exe -m scripts.run_pricing)",
-      "Bash(python -m pytest tests/ -v --tb=short)"
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python -m scripts.init_db)",
+      "Bash(python -m pytest tests/ -x --tb=short)"
     ]
   }
 }

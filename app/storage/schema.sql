@@ -98,6 +98,30 @@ CREATE TABLE IF NOT EXISTS pricing_analyses (
     -- Comparables metadata
     comparable_level TEXT,
     currency_used TEXT,
+    -- Ranking local dentro del microgrupo (Fase 4.2)
+    local_price_rank INTEGER,
+    local_group_size INTEGER NOT NULL DEFAULT 0,
+    local_price_percentile REAL,
+    is_top_local_price_1 INTEGER NOT NULL DEFAULT 0,
+    is_top_local_price_3 INTEGER NOT NULL DEFAULT 0,
+    -- Freshness (Fase 4.2)
+    freshness_bucket TEXT,
+    freshness_boost REAL NOT NULL DEFAULT 0,
+    days_on_market INTEGER,
+    -- Historial de precio (Fase 4.2)
+    initial_price REAL,
+    current_price REAL,
+    price_change_count INTEGER NOT NULL DEFAULT 0,
+    markdown_abs REAL,
+    markdown_pct REAL,
+    markdown_bonus REAL NOT NULL DEFAULT 0,
+    -- Priority score (Fase 4.2)
+    price_edge_score REAL NOT NULL DEFAULT 0,
+    local_rank_bonus REAL NOT NULL DEFAULT 0,
+    dominance_penalty REAL NOT NULL DEFAULT 0,
+    anomaly_penalty REAL NOT NULL DEFAULT 0,
+    final_priority_score REAL,
+    final_priority_level TEXT,
     -- Estado
     pricing_status TEXT NOT NULL DEFAULT 'pending',
     notes TEXT,
@@ -114,3 +138,5 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_listing ON listing_snapshots(listing_id
 CREATE INDEX IF NOT EXISTS idx_alerts_listing ON opportunity_alerts(listing_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_listing ON pricing_analyses(listing_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_status ON pricing_analyses(pricing_status);
+CREATE INDEX IF NOT EXISTS idx_pricing_priority ON pricing_analyses(final_priority_level);
+CREATE INDEX IF NOT EXISTS idx_pricing_score ON pricing_analyses(final_priority_score);

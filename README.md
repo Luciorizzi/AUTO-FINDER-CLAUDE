@@ -332,7 +332,85 @@ El factor 1.5 es configurable en `configs/thresholds.yaml`.
 | `opportunity_alerts` | Oportunidades para notificar (Fase 5) |
 | `run_logs` | Registro de cada ejecucion del bot |
 
-## Limitaciones actuales (Fase 4 v2 + Captura v2)
+## Priorizacion operativa (Fase 4.2)
+
+La Fase 4 v2 responde a la pregunta **"este auto esta barato vs el mercado?"** mediante `opportunity_level`. La Fase 4.2 agrega una capa distinta: **"cual conviene mirar primero?"** mediante `final_priority_level`.
+
+Son dos conceptos separados y ambos se persisten:
+
+| Campo | Pregunta que responde | Valores |
+|---|---|---|
+| `opportunity_level` | Esta barato vs fair price? | `strong_opportunity` / `medium_opportunity` / `not_opportunity` |
+| `final_priority_level` | Conviene mirarlo ya? | `urgent_review` / `high_priority` / `medium_priority` / `low_priority` |
+
+Un auto puede ser `medium_opportunity` pero `urgent_review` si es el mas barato de su microgrupo real + recien publicado. Inversamente, un `strong_opportunity` dominado por otro comparable cae a `medium_priority`.
+
+### Senales que alimentan el score
+
+1. **Price edge** (`price_edge_score`): magnitud del descuento (`-gap_pct`), capada en `price_edge_cap` (default 40).
+2. **Local rank** (`local_rank_bonus`): ranking dentro del **microgrupo estricto** (mismo modelo, anio ±1, km ±15000, misma moneda). Si el microgrupo tiene al menos `local_min_group_size` listings:
+   - top 1 del microgrupo → `local_top1_bonus` (default 30)
+   - top 3 del microgrupo → `local_top3_bonus` (default 15)
+3. **Freshness boost** (`freshness_boost`): segun `first_seen_at`:
+   - 0-1 dias → `freshness_1d_boost` (default 25)
+   - 1-3 dias → `freshness_3d_boost` (default 15)
+   - 3-7 dias → `freshness_7d_boost` (default 5)
+   - \>7 dias → 0
+4. **Markdown bonus** (`markdown_bonus`): si `listing_snapshots` muestra una rebaja de al menos `markdown_significant_pct` (default 3%) vs el precio inicial, suma `markdown_bonus` (default 20).
+5. **Dominance penalty** (`-dominance_penalty`): si esta dominado por otro comparable, resta `dominance_penalty` (default 40).
+6. **Anomaly penalty** (`-anomaly_high_penalty`): si `anomaly_risk == "alto"`, resta `anomaly_high_penalty` (default 25).
+
+### Formula
+
+```
+final_priority_score =
+    price_edge_score
+  + local_rank_bonus
+  + freshness_boost
+  + markdown_bonus
+  - dominance_penalty
+  - anomaly_penalty
+```
+
+### Mapeo a nivel
+
+```
+score >= urgent_review_threshold  (default 70) → urgent_review
+score >= high_priority_threshold  (default 45) → high_priority
+score >= medium_priority_threshold(default 20) → medium_priority
+else                                           → low_priority
+```
+
+### Gates de seguridad (criticos)
+
+- Un listing **dominado NUNCA** puede ser `urgent_review`. Se degrada a `high_priority`.
+- Un listing con `anomaly_risk == "alto"` **NUNCA** puede ser `urgent_review`. Se degrada a `high_priority`.
+- Un dominado con score borderline en `high_priority` se degrada un escalon mas a `medium_priority`.
+
+La idea es que `urgent_review` sea una bandera operativa confiable: si esta en la lista, hay que mirarlo ahora.
+
+### Historial de precio
+
+`price_history.py` lee `listing_snapshots` para calcular:
+- `initial_price` / `current_price`
+- `price_change_count` (cantidad de cambios detectados entre snapshots)
+- `markdown_abs` / `markdown_pct`
+- `days_on_market` (fallback si no hay `first_seen_at`)
+
+Esto permite detectar vendedores que rebajan activamente el precio, que historicamente son mejores candidatos.
+
+### Persistencia
+
+Todo el desglose se guarda en `pricing_analyses`:
+- `local_price_rank`, `local_group_size`, `local_price_percentile`, `is_top_local_price_1/3`
+- `freshness_bucket`, `freshness_boost`, `days_on_market`
+- `initial_price`, `current_price`, `price_change_count`, `markdown_abs`, `markdown_pct`
+- `price_edge_score`, `local_rank_bonus`, `dominance_penalty`, `anomaly_penalty`
+- `final_priority_score`, `final_priority_level`
+
+Esto permite auditar **por que** cada listing termino en un nivel dado.
+
+## Limitaciones actuales (Fase 4 v2 + Captura v2 + Fase 4.2)
 
 - Los selectores CSS pueden dejar de funcionar si ML cambia su HTML.
 - No se implementa paginacion de resultados (solo primera pagina por query). El balance entre queries mejora la cobertura, pero no reemplaza paginar.
@@ -349,6 +427,11 @@ El factor 1.5 es configurable en `configs/thresholds.yaml`.
 - La deteccion de financiamiento es por regex sobre el titulo; publicaciones que no mencionan "anticipo" o "cuotas" en el titulo pueden pasar desapercibidas.
 - La dominancia es conservadora: requiere ventaja en TODOS los ejes (anio, km, precio). Un auto puede ser mejor en dos de tres y no dominar.
 - No se pondera la distancia de km entre comparables (un comparable a 1.000 km de diferencia pesa igual que uno a 14.000 km).
+- **Fase 4.2**: `local_rank` necesita al menos `local_min_group_size` comparables dentro del microgrupo estricto. Con pocos datos, el bonus de ranking local no se activa.
+- **Fase 4.2**: `freshness` depende de `first_seen_at`, que solo es fiable si la captura corre con regularidad. Un listing detectado hoy por primera vez pero publicado hace semanas parece "fresco".
+- **Fase 4.2**: `markdown` requiere al menos 2 snapshots del mismo listing. En la primera corrida ningun listing tiene historial.
+- **Fase 4.2**: los pesos del score son constantes configurables, no aprendidos. Si el balance resulta mal calibrado en la practica, hay que ajustar `configs/thresholds.yaml` a mano.
+- **Fase 4.2**: el microgrupo local usa los comparables ya encontrados por `find_comparables`, que puede haber devuelto nivel B. Si el nivel A tiene menos de `local_min_group_size`, el ranking no se computa aunque haya candidatos del nivel B cerca.
 
 ## Decisiones de diseno
 
@@ -389,6 +472,15 @@ El factor 1.5 es configurable en `configs/thresholds.yaml`.
 - Gap porcentual y clasificacion de oportunidad
 - Evaluacion de riesgo de anomalia
 - Persistencia de analisis con flags de dominancia, nivel de comparable, moneda
+
+### Fase 4.2: Priorizacion operativa ✅
+- Separacion de `opportunity_level` vs `final_priority_level`
+- Freshness scoring por buckets (0-1d, 1-3d, 3-7d, >7d)
+- Ranking local dentro del microgrupo estricto (anio ±1, km ±15000)
+- Historial de precio desde snapshots (markdown, days_on_market)
+- Score final auditable con desglose por componente
+- Gates de seguridad: dominados y riesgo alto nunca son urgent_review
+- Niveles operativos: urgent_review / high_priority / medium_priority / low_priority
 
 ### Fase 5: Alertas + Scheduler (pendiente)
 - Alertas Telegram para oportunidades detectadas

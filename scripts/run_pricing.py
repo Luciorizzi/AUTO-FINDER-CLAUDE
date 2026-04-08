@@ -14,6 +14,7 @@ from app.config import (
     load_comparable_levels,
     load_dominance_config,
     load_env,
+    load_priority_config,
     load_pricing_config,
     load_risk_config,
     load_thresholds,
@@ -29,7 +30,7 @@ def main() -> None:
     setup_logging(env.log_level)
     logger = get_logger("run_pricing")
 
-    logger.info("=== AutoFinder - Pricing v2 ===")
+    logger.info("=== AutoFinder - Pricing v2 + Fase 4.2 ===")
 
     # Cargar configs
     thresholds = load_thresholds()
@@ -37,6 +38,7 @@ def main() -> None:
     pricing_config = load_pricing_config()
     comp_levels = load_comparable_levels()
     dominance_config = load_dominance_config()
+    priority_config = load_priority_config()
 
     logger.info(
         "Config: batch=%d, outlier=%s, financing=%s, dominance=%s",
@@ -67,6 +69,7 @@ def main() -> None:
             pricing_config=pricing_config,
             comp_levels=comp_levels,
             dominance_config=dominance_config,
+            priority_config=priority_config,
             env=env,
         )
 
@@ -82,6 +85,13 @@ def main() -> None:
         logger.info("Not opportunity:       %d", summary.total_not_opportunity)
         logger.info("Dominados:             %d", summary.total_dominated)
         logger.info("Riesgo alto:           %d", summary.total_high_risk)
+        logger.info("--- Prioridad operativa (Fase 4.2) ---")
+        logger.info("Urgent review:         %d", summary.total_urgent_review)
+        logger.info("High priority:         %d", summary.total_high_priority)
+        logger.info("Medium priority:       %d", summary.total_medium_priority)
+        logger.info("Low priority:          %d", summary.total_low_priority)
+        logger.info("Top 1 local microgrupo:%d", summary.total_top_local_1)
+        logger.info("Con rebaja (markdown): %d", summary.total_markdown)
         logger.info("Errores:               %d", summary.total_errors)
 
         if summary.models_analyzed:
@@ -101,6 +111,9 @@ def main() -> None:
         logger.info("Dominados:             %d", global_summary["dominated"])
         logger.info("Financiamiento excl:   %d", global_summary["financing_excluded"])
         logger.info("Riesgo alto:           %d", global_summary["high_risk"])
+        logger.info("Urgent review:         %d", global_summary.get("urgent_review", 0))
+        logger.info("High priority:         %d", global_summary.get("high_priority", 0))
+        logger.info("Top 1 local:           %d", global_summary.get("top_local_1", 0))
         logger.info("Errores:               %d", global_summary["errors"])
 
     finally:
