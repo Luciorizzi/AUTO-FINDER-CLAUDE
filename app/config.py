@@ -37,6 +37,11 @@ class EnvSettings(BaseSettings):
     min_details_per_query: int = 5
     prioritize_lowest_price_first: bool = True
     enable_search_position_capture: bool = True
+    # Fase 2 v3: priorizacion avanzada del search
+    deprioritize_financing_previews: bool = True
+    exclude_financing_previews: bool = False
+    enable_preview_priority_score: bool = True
+    search_selection_strategy: str = "balanced_low_price"
     browser_timeout_ms: int = 30000
     user_agent: str = ""
 
@@ -53,9 +58,16 @@ class EnvSettings(BaseSettings):
     duplicate_mileage_tolerance: int = 2000
     allow_ambiguous_models: bool = False
 
-    # Telegram (Fase 4+)
+    # Telegram y alertas (Fase 5)
+    telegram_enabled: bool = True
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    alert_priority_levels: str = "urgent_review,high_priority"
+    alert_channel: str = "telegram"
+    alert_resend_on_price_change: bool = True
+    alert_resend_on_priority_upgrade: bool = True
+    alert_resend_on_opportunity_upgrade: bool = True
+    alert_dry_run: bool = False
 
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),

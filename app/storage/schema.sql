@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS listings (
     search_page INTEGER DEFAULT 1,
     preview_price REAL,
     preview_currency TEXT,
+    preview_financing_flag INTEGER NOT NULL DEFAULT 0,
+    preview_priority_score REAL,
+    selected_for_detail INTEGER NOT NULL DEFAULT 0,
     extraction_timestamp TEXT,
     FOREIGN KEY (duplicate_of) REFERENCES listings(id)
 );
@@ -128,6 +131,34 @@ CREATE TABLE IF NOT EXISTS pricing_analyses (
     FOREIGN KEY (listing_id) REFERENCES listings(id)
 );
 
+-- Alertas enviadas (Fase 5)
+CREATE TABLE IF NOT EXISTS sent_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id INTEGER NOT NULL,
+    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+    channel TEXT NOT NULL DEFAULT 'telegram',
+    telegram_chat_id TEXT,
+    -- Fingerprint para dedup
+    message_fingerprint TEXT NOT NULL,
+    -- Estado al momento del envio
+    sent_price REAL,
+    sent_currency TEXT,
+    sent_opportunity_level TEXT,
+    sent_final_priority_level TEXT,
+    sent_final_priority_score REAL,
+    sent_fair_price REAL,
+    sent_gap_pct REAL,
+    -- Resultado del envio
+    send_status TEXT NOT NULL DEFAULT 'pending',
+    send_error TEXT,
+    telegram_message_id INTEGER,
+    -- Razon de alerta
+    alert_reason TEXT NOT NULL,
+    -- Modo
+    is_dry_run INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (listing_id) REFERENCES listings(id)
+);
+
 -- Indices para queries frecuentes
 CREATE INDEX IF NOT EXISTS idx_listings_model ON listings(model_normalized);
 CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active);
@@ -140,3 +171,6 @@ CREATE INDEX IF NOT EXISTS idx_pricing_listing ON pricing_analyses(listing_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_status ON pricing_analyses(pricing_status);
 CREATE INDEX IF NOT EXISTS idx_pricing_priority ON pricing_analyses(final_priority_level);
 CREATE INDEX IF NOT EXISTS idx_pricing_score ON pricing_analyses(final_priority_score);
+CREATE INDEX IF NOT EXISTS idx_sent_alerts_listing ON sent_alerts(listing_id);
+CREATE INDEX IF NOT EXISTS idx_sent_alerts_fingerprint ON sent_alerts(message_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_sent_alerts_status ON sent_alerts(send_status);

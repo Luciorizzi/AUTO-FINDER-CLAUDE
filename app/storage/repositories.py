@@ -99,11 +99,17 @@ def upsert_listing(
     search_page: int = 1,
     preview_price: Optional[float] = None,
     preview_currency: Optional[str] = None,
+    preview_financing_flag: bool = False,
+    preview_priority_score: Optional[float] = None,
+    selected_for_detail: bool = False,
 ) -> int:
     """Inserta o actualiza un listing. Retorna el ID del registro."""
     existing = get_listing_by_source_id(conn, detail.source_id)
 
     if existing:
+        # Los campos de search_* se setean solo la primera vez.
+        # Actualizamos el score de prioridad del preview porque puede cambiar
+        # entre corridas y sirve para auditar la ultima decision.
         conn.execute(
             """UPDATE listings
                SET price = COALESCE(?, price),
@@ -111,6 +117,8 @@ def upsert_listing(
                    km = COALESCE(?, km),
                    location = COALESCE(?, location),
                    seller_type = COALESCE(?, seller_type),
+                   preview_priority_score = COALESCE(?, preview_priority_score),
+                   selected_for_detail = CASE WHEN ? = 1 THEN 1 ELSE selected_for_detail END,
                    last_seen_at = datetime('now'),
                    is_active = 1
                WHERE source_id = ?""",
@@ -120,6 +128,8 @@ def upsert_listing(
                 detail.km,
                 detail.location,
                 detail.seller_type,
+                preview_priority_score,
+                1 if selected_for_detail else 0,
                 detail.source_id,
             ),
         )
@@ -132,8 +142,10 @@ def upsert_listing(
                (source_id, source, url, title, model_raw, year, km,
                 price, currency, location, seller_type,
                 search_query, search_position, search_page,
-                preview_price, preview_currency, extraction_timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                preview_price, preview_currency,
+                preview_financing_flag, preview_priority_score, selected_for_detail,
+                extraction_timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (
                 detail.source_id,
                 detail.source,
@@ -151,6 +163,9 @@ def upsert_listing(
                 search_page,
                 preview_price,
                 preview_currency,
+                1 if preview_financing_flag else 0,
+                preview_priority_score,
+                1 if selected_for_detail else 0,
             ),
         )
         conn.commit()
@@ -207,6 +222,9 @@ def persist_listing_detail(
     search_page: int = 1,
     preview_price: Optional[float] = None,
     preview_currency: Optional[str] = None,
+    preview_financing_flag: bool = False,
+    preview_priority_score: Optional[float] = None,
+    selected_for_detail: bool = False,
 ) -> int:
     """Persiste un listing y crea su snapshot en una operacion."""
     listing_id = upsert_listing(
@@ -216,6 +234,9 @@ def persist_listing_detail(
         search_page=search_page,
         preview_price=preview_price,
         preview_currency=preview_currency,
+        preview_financing_flag=preview_financing_flag,
+        preview_priority_score=preview_priority_score,
+        selected_for_detail=selected_for_detail,
     )
     create_snapshot(conn, listing_id, detail.price, detail.currency, detail.km)
     return listing_id
@@ -541,4 +562,128 @@ def get_pricing_summary(conn: sqlite3.Connection) -> dict:
         "high_priority": high_pri,
         "top_local_1": top_local,
         "errors": errors,
+    }
+
+
+# --- Alertas enviadas (Fase 5) ---
+
+def get_alertable_listings(
+    conn: sqlite3.Connection,
+    priority_levels: list[str],
+) -> list[dict]:
+    """Retorna listings elegibles para alertar con su pricing más reciente.
+
+    Un listing es elegible si:
+    - tiene pricing_analyses con final_priority_level en los niveles dados
+    - está activo
+    - es válido para el segmento
+    - no está duplicado
+    - no es financiamiento
+
+    Returns:
+        Lista de dicts con campos de listings + pricing_analyses (JOIN).
+    """
+    placeholders = ",".join("?" for _ in priority_levels)
+    cursor = conn.execute(
+        f"""SELECT l.*, pa.*,
+                   l.id as listing_id,
+                   pa.id as pricing_id
+            FROM listings l
+            INNER JOIN pricing_analyses pa ON pa.listing_id = l.id
+            WHERE pa.final_priority_level IN ({placeholders})
+              AND l.is_active = 1
+              AND l.is_valid_segment = 1
+              AND l.duplicate_of IS NULL
+              AND (l.is_financing = 0 AND l.is_down_payment = 0)
+              AND pa.pricing_status = 'enough_data'
+            ORDER BY pa.final_priority_score DESC""",
+        priority_levels,
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_last_successful_alert(
+    conn: sqlite3.Connection,
+    listing_id: int,
+) -> Optional[dict]:
+    """Retorna la última alerta exitosa enviada para un listing."""
+    cursor = conn.execute(
+        """SELECT * FROM sent_alerts
+           WHERE listing_id = ?
+             AND send_status = 'sent'
+             AND is_dry_run = 0
+           ORDER BY sent_at DESC
+           LIMIT 1""",
+        (listing_id,),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def save_sent_alert(
+    conn: sqlite3.Connection,
+    listing_id: int,
+    message_fingerprint: str,
+    alert_reason: str,
+    *,
+    channel: str = "telegram",
+    telegram_chat_id: Optional[str] = None,
+    sent_price: Optional[float] = None,
+    sent_currency: Optional[str] = None,
+    sent_opportunity_level: Optional[str] = None,
+    sent_final_priority_level: Optional[str] = None,
+    sent_final_priority_score: Optional[float] = None,
+    sent_fair_price: Optional[float] = None,
+    sent_gap_pct: Optional[float] = None,
+    send_status: str = "sent",
+    send_error: Optional[str] = None,
+    telegram_message_id: Optional[int] = None,
+    is_dry_run: bool = False,
+) -> int:
+    """Persiste un registro de alerta enviada (o intentada)."""
+    cursor = conn.execute(
+        """INSERT INTO sent_alerts
+           (listing_id, channel, telegram_chat_id, message_fingerprint,
+            sent_price, sent_currency, sent_opportunity_level,
+            sent_final_priority_level, sent_final_priority_score,
+            sent_fair_price, sent_gap_pct,
+            send_status, send_error, telegram_message_id,
+            alert_reason, is_dry_run)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            listing_id, channel, telegram_chat_id, message_fingerprint,
+            sent_price, sent_currency, sent_opportunity_level,
+            sent_final_priority_level, sent_final_priority_score,
+            sent_fair_price, sent_gap_pct,
+            send_status, send_error, telegram_message_id,
+            alert_reason, 1 if is_dry_run else 0,
+        ),
+    )
+    conn.commit()
+    logger.debug(
+        "Alerta registrada: listing_id=%d reason=%s status=%s dry=%s",
+        listing_id, alert_reason, send_status, is_dry_run,
+    )
+    return cursor.lastrowid
+
+
+def get_alert_summary(conn: sqlite3.Connection) -> dict:
+    """Resumen de alertas enviadas."""
+    total = conn.execute(
+        "SELECT count(*) as c FROM sent_alerts"
+    ).fetchone()["c"]
+    sent_ok = conn.execute(
+        "SELECT count(*) as c FROM sent_alerts WHERE send_status = 'sent' AND is_dry_run = 0"
+    ).fetchone()["c"]
+    failed = conn.execute(
+        "SELECT count(*) as c FROM sent_alerts WHERE send_status = 'failed'"
+    ).fetchone()["c"]
+    dry = conn.execute(
+        "SELECT count(*) as c FROM sent_alerts WHERE is_dry_run = 1"
+    ).fetchone()["c"]
+    return {
+        "total": total,
+        "sent_ok": sent_ok,
+        "failed": failed,
+        "dry_run": dry,
     }

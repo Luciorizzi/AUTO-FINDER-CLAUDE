@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app.filters.financing_detector import detect_financing
 from app.parsers.text_normalizer import (
     clean_text,
     detect_currency,
@@ -35,6 +36,12 @@ class SearchResult:
     search_query: str = ""
     search_position: int = 0
     search_page: int = 1
+    # Seniales detectadas sobre el preview (Fase 2 v3)
+    is_financing_preview: bool = False
+    financing_pattern: Optional[str] = None
+    # Score de priorizacion (seteado por el prioritizer)
+    preview_priority_score: Optional[float] = None
+    selected_for_detail: bool = False
 
 
 @dataclass
@@ -82,14 +89,20 @@ def parse_search_result(
     search_query: str,
 ) -> SearchResult:
     """Parsea un resultado de busqueda crudo en un SearchResult."""
+    cleaned_title = clean_text(title)
+    # Deteccion temprana de financiamiento/anticipo sobre el titulo preview
+    financing = detect_financing(cleaned_title)
+
     result = SearchResult(
         listing_url=url,
         source_id=extract_source_id(url),
-        title_preview=clean_text(title),
+        title_preview=cleaned_title,
         price_preview=parse_price(price_text),
         currency_preview=detect_currency(currency_text),
         location_preview=clean_text(location),
         search_query=search_query,
+        is_financing_preview=financing.is_financing or financing.is_down_payment,
+        financing_pattern=financing.matched_pattern or None,
     )
 
     # Intentar extraer año y km de los atributos del resultado
