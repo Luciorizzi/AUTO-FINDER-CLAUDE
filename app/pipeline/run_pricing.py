@@ -1,10 +1,17 @@
-"""Pipeline de pricing por comparables (v2).
+"""Pipeline de pricing por comparables (v2 + Fase 4.2).
 
-Mejoras sobre v1:
+Fase 4 v2:
 - Comparables solo de la misma moneda (ARS con ARS, USD con USD)
 - Exclusion de publicaciones de anticipo/financiacion
 - Comparables por niveles A/B (anio pesa fuerte)
 - Regla de dominancia para evitar oportunidades falsas
+
+Fase 4.2:
+- Ranking local dentro del microgrupo comparable
+- Freshness scoring / boost por antiguedad
+- Senales historicas de precio desde listing_snapshots
+- Score final de prioridad operativa separado del opportunity_level
+- Niveles operativos: urgent_review / high_priority / medium_priority / low_priority
 
 Flujo por cada listing:
 1. Detectar y persistir flags de financiamiento
@@ -13,9 +20,13 @@ Flujo por cada listing:
 4. Calcular fair price (mediana)
 5. Calcular gap porcentual
 6. Verificar dominancia
-7. Clasificar oportunidad (con degradacion por dominancia)
+7. Clasificar oportunidad economica (con degradacion por dominancia)
 8. Evaluar riesgo de anomalia
-9. Persistir resultado
+9. Calcular ranking local dentro del microgrupo
+10. Calcular freshness bucket + boost
+11. Calcular senales historicas de precio
+12. Calcular final_priority_score + final_priority_level
+13. Persistir resultado completo
 """
 
 import sqlite3
@@ -26,6 +37,7 @@ from app.config import (
     ComparableLevelsConfig,
     DominanceConfig,
     EnvSettings,
+    PriorityConfig,
     PricingConfig,
     RiskConfig,
     ThresholdsConfig,
@@ -34,7 +46,11 @@ from app.filters.financing_detector import detect_financing
 from app.pricing.comparable_finder import find_comparables
 from app.pricing.dominance_checker import check_dominance
 from app.pricing.fair_price import calculate_fair_price
+from app.pricing.freshness import compute_freshness
+from app.pricing.local_rank import compute_local_rank
 from app.pricing.opportunity_score import classify_opportunity
+from app.pricing.price_history import compute_price_history
+from app.pricing.priority_score import compute_priority_score
 from app.risk.anomaly_detector import assess_anomaly_risk
 from app.storage.repositories import (
     get_listings_for_pricing,
@@ -60,6 +76,13 @@ class PricingSummary:
     total_not_opportunity: int = 0
     total_dominated: int = 0
     total_high_risk: int = 0
+    # Fase 4.2: prioridad operativa
+    total_urgent_review: int = 0
+    total_high_priority: int = 0
+    total_medium_priority: int = 0
+    total_low_priority: int = 0
+    total_top_local_1: int = 0
+    total_markdown: int = 0
     total_errors: int = 0
     models_analyzed: dict[str, int] = field(default_factory=dict)
 
@@ -71,6 +94,7 @@ def run_pricing_batch(
     pricing_config: PricingConfig,
     comp_levels: ComparableLevelsConfig,
     dominance_config: DominanceConfig,
+    priority_config: PriorityConfig,
     env: EnvSettings,
 ) -> PricingSummary:
     """Ejecuta el pipeline de pricing sobre listings pendientes."""
@@ -116,8 +140,11 @@ def run_pricing_batch(
                     median_comparable_price=None, p25_comparable_price=None,
                     pricing_status="skipped_financing",
                     currency_used=currency,
+                    final_priority_level="low_priority",
+                    final_priority_score=0.0,
                 )
                 summary.total_analyzed += 1
+                summary.total_low_priority += 1
                 continue
 
             # 2. Buscar comparables con niveles A/B
@@ -145,8 +172,7 @@ def run_pricing_batch(
                 iqr_factor=pricing_config.iqr_factor,
             )
 
-            # 5. Calcular gap
-            # 6. Verificar dominancia
+            # 5+6. Dominancia
             is_dominated = False
             dom_result = None
             if env.enable_dominance_rule and comp_result.comparables:
@@ -185,7 +211,61 @@ def run_pricing_batch(
                 max_cv=pricing_config.max_cv,
             )
 
-            # 9. Persistir
+            # --- Fase 4.2 ---
+
+            # 9. Ranking local dentro del microgrupo
+            local_rank = compute_local_rank(
+                target_price=listing["price"],
+                comparables=comp_result.comparables,
+                target_year=listing.get("year"),
+                target_km=listing.get("km"),
+                local_group_max_year_diff=priority_config.local_group_max_year_diff,
+                local_group_max_km_diff=priority_config.local_group_max_km_diff,
+                local_min_group_size=priority_config.local_min_group_size,
+            )
+
+            # 10. Freshness
+            freshness = compute_freshness(
+                first_seen_at=listing.get("first_seen_at"),
+                boost_1d=priority_config.freshness_1d_boost,
+                boost_3d=priority_config.freshness_3d_boost,
+                boost_7d=priority_config.freshness_7d_boost,
+            )
+
+            # 11. Historial de precio
+            history = compute_price_history(
+                conn=conn,
+                listing_id=listing_id,
+                current_price=listing.get("price"),
+            )
+
+            # days_on_market: preferir freshness, sino historia
+            days_on_market = freshness.days_on_market
+            if days_on_market is None:
+                days_on_market = history.history_days_on_market
+
+            # 12. Priority score final
+            priority = compute_priority_score(
+                gap_pct=opp_result.gap_pct,
+                is_top_local_price_1=local_rank.is_top_local_price_1,
+                is_top_local_price_3=local_rank.is_top_local_price_3,
+                freshness_boost=freshness.boost,
+                markdown_pct=history.markdown_pct,
+                is_dominated=is_dominated,
+                anomaly_risk=anomaly.risk_level,
+                price_edge_cap=priority_config.price_edge_cap,
+                local_top1_bonus=priority_config.local_top1_bonus,
+                local_top3_bonus=priority_config.local_top3_bonus,
+                markdown_significant_pct=priority_config.markdown_significant_pct,
+                markdown_bonus=priority_config.markdown_bonus,
+                dominance_penalty=priority_config.dominance_penalty,
+                anomaly_high_penalty=priority_config.anomaly_high_penalty,
+                urgent_review_threshold=priority_config.urgent_review_threshold,
+                high_priority_threshold=priority_config.high_priority_threshold,
+                medium_priority_threshold=priority_config.medium_priority_threshold,
+            )
+
+            # 13. Persistir
             anomaly_reasons_str = ",".join(anomaly.reasons) if anomaly.reasons else None
 
             save_pricing_analysis(
@@ -209,6 +289,30 @@ def run_pricing_batch(
                 dominance_reason=dom_result.dominance_reason if dom_result else None,
                 comparable_level=comp_result.level_used,
                 currency_used=currency,
+                # Local rank
+                local_price_rank=local_rank.local_price_rank,
+                local_group_size=local_rank.local_group_size,
+                local_price_percentile=local_rank.local_price_percentile,
+                is_top_local_price_1=local_rank.is_top_local_price_1,
+                is_top_local_price_3=local_rank.is_top_local_price_3,
+                # Freshness
+                freshness_bucket=freshness.bucket,
+                freshness_boost=freshness.boost,
+                days_on_market=days_on_market,
+                # Price history
+                initial_price=history.initial_price,
+                current_price=history.current_price,
+                price_change_count=history.price_change_count,
+                markdown_abs=history.markdown_abs,
+                markdown_pct=history.markdown_pct,
+                markdown_bonus=priority.markdown_bonus,
+                # Priority score breakdown
+                price_edge_score=priority.price_edge_score,
+                local_rank_bonus=priority.local_rank_bonus,
+                dominance_penalty=priority.dominance_penalty,
+                anomaly_penalty=priority.anomaly_penalty,
+                final_priority_score=priority.final_priority_score,
+                final_priority_level=priority.final_priority_level,
             )
 
             # Contadores
@@ -235,6 +339,22 @@ def run_pricing_batch(
             if anomaly.risk_level == "alto":
                 summary.total_high_risk += 1
 
+            # Fase 4.2 counters
+            if priority.final_priority_level == "urgent_review":
+                summary.total_urgent_review += 1
+            elif priority.final_priority_level == "high_priority":
+                summary.total_high_priority += 1
+            elif priority.final_priority_level == "medium_priority":
+                summary.total_medium_priority += 1
+            else:
+                summary.total_low_priority += 1
+
+            if local_rank.is_top_local_price_1:
+                summary.total_top_local_1 += 1
+            if history.has_markdown and history.markdown_pct is not None \
+                    and history.markdown_pct <= -priority_config.markdown_significant_pct:
+                summary.total_markdown += 1
+
         except Exception as e:
             logger.error("Error en pricing de listing id=%d: %s", listing_id, e)
             summary.total_errors += 1
@@ -248,6 +368,8 @@ def run_pricing_batch(
                     min_comparable_price=None, max_comparable_price=None,
                     median_comparable_price=None, p25_comparable_price=None,
                     pricing_status="error", notes=str(e)[:200],
+                    final_priority_level="low_priority",
+                    final_priority_score=0.0,
                 )
             except Exception:
                 logger.error("No se pudo persistir error para listing id=%d", listing_id)

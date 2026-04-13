@@ -37,3 +37,31 @@ dominance:
   price_tolerance_pct: 5.0
   # Ventaja minima de km que el dominador debe tener
   min_km_advantage: 3000
+
+# Priorizacion operativa (Fase 4.2)
+# Separa la oportunidad estadistica de la prioridad operativa.
+# final_priority_score = price_edge + local_rank_bonus + freshness_boost
+#                        + markdown_bonus - dominance_penalty - anomaly_penalty
+priority:
+  # Freshness (dias desde first_seen_at)
+  freshness_1d_boost: 25.0   # publicado hoy o ayer
+  freshness_3d_boost: 15.0   # publicado en ultimos 2-3 dias
+  freshness_7d_boost: 5.0    # publicado en ultima semana
+  # Ranking local dentro del microgrupo (nivel A estricto)
+  local_top1_bonus: 30.0     # es el mas barato del microgrupo
+  local_top3_bonus: 15.0     # esta entre los 3 mas baratos
+  local_group_max_year_diff: 1
+  local_group_max_km_diff: 15000
+  local_min_group_size: 3
+  # Penalizaciones
+  dominance_penalty: 40.0    # dominado por otro comparable
+  anomaly_high_penalty: 25.0 # riesgo alto de anomalia
+  # Rebaja de precio (markdown)
+  markdown_significant_pct: 3.0  # % minimo vs precio inicial para contar
+  markdown_bonus: 20.0
+  # Cap del price_edge_score (gap_pct negativo tope)
+  price_edge_cap: 40.0
+  # Umbrales del final_priority_level
+  urgent_review_threshold: 70.0
+  high_priority_threshold: 45.0
+  medium_priority_threshold: 20.0

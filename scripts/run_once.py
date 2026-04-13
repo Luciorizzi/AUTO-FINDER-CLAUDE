@@ -49,13 +49,18 @@ def run_once() -> None:
     logger.info("=== AutoFinder - Run Once ===")
     logger.info(
         "Config: queries=%d, max_per_query=%d, max_details=%d, "
-        "max_details_per_query=%d, min_per_query=%d, price_priority=%s, headless=%s",
+        "max_details_per_query=%d, min_per_query=%d, price_priority=%s, "
+        "strategy=%s, deprio_fin=%s, excl_fin=%s, score=%s, headless=%s",
         len(scraping_config.search_queries),
         env.ml_max_results_per_query,
         env.ml_max_detail_pages_per_run,
         env.ml_max_details_per_query,
         env.min_details_per_query,
         env.prioritize_lowest_price_first,
+        env.search_selection_strategy,
+        env.deprioritize_financing_previews,
+        env.exclude_financing_previews,
+        env.enable_preview_priority_score,
         env.headless,
     )
 
@@ -112,6 +117,10 @@ def run_once() -> None:
                 min_details_per_query=env.min_details_per_query,
                 prioritize_lowest_price=env.prioritize_lowest_price_first,
                 already_seen_ids=existing_ids,
+                deprioritize_financing=env.deprioritize_financing_previews,
+                exclude_financing=env.exclude_financing_previews,
+                enable_priority_score=env.enable_preview_priority_score,
+                strategy=env.search_selection_strategy,
             )
 
             if not selected:
@@ -151,6 +160,9 @@ def run_once() -> None:
                     search_page=meta.search_page if meta else 1,
                     preview_price=meta.price_preview if meta else None,
                     preview_currency=meta.currency_preview if meta else None,
+                    preview_financing_flag=meta.is_financing_preview if meta else False,
+                    preview_priority_score=meta.preview_priority_score if meta else None,
+                    selected_for_detail=meta.selected_for_detail if meta else True,
                 )
                 total_persisted += 1
             except Exception as e:
@@ -167,6 +179,11 @@ def run_once() -> None:
         logger.info("Queries ejecutadas:    %d", len(scraping_config.search_queries))
         logger.info("Resultados busqueda:   %d", total_search_results)
         logger.info("Candidatos nuevos:     %d", prio_stats.total_candidates)
+        logger.info("Con precio parseable:  %d", prio_stats.total_with_price)
+        logger.info("Sin precio parseable:  %d", prio_stats.total_without_price)
+        logger.info("Financieros detectados:%d", prio_stats.total_financing_detected)
+        logger.info("Financieros excluidos: %d", prio_stats.total_financing_excluded)
+        logger.info("Estrategia seleccion:  %s", prio_stats.strategy)
         logger.info("Seleccionados:         %d", prio_stats.total_selected)
         logger.info("Excluidos por limite:  %d", prio_stats.total_excluded_by_limit)
         logger.info("Detalles procesados:   %d", total_details)
